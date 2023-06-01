@@ -1,0 +1,10 @@
+# https://andyrusiecki.dev/posts/fedora-silverblue-docker-compose/
+version: '3'
+services:
+  zomboid:
+    build: .
+    ports:
+      - "16261:16261/udp"
+    volumes:
+      # configure SELinux to ensure only one container can access this directory at once
+      - "./game_files:/install_dir:Z"
