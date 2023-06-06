@@ -1,16 +1,17 @@
 mod services;
 use services::zomboid;
-/// Cool
+
+// Globally expose the logging macros
+#[macro_use]
+extern crate log;
+use env_logger;
+
 #[tokio::main()]
 async fn main() {
+    env_logger::init();
+    info!("This is a test");
     let config = services::config::parse();
-    zomboid::run(
-        &config.steamcmd,
-        &config.zomboid,
-        "/install_dir",
-        config.workshop_ids,
-        &config.admin_name,
-        &config.admin_password,
-    )
-    .unwrap();
+    zomboid::run(&config.zomboid, &config.admin_password)
+        .await
+        .unwrap();
 }

@@ -405,6 +405,7 @@ dependencies = [
  "ctrlc",
  "enum_derive",
  "env_logger",
+ "log",
  "regex",
  "serde_json",
  "tokio",

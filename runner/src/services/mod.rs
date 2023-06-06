@@ -11,11 +11,8 @@ pub mod config {
 
     #[derive(Parser, Debug)]
     pub struct Config {
-        pub steamcmd: String,
+        /// Project zomboid start-server.sh location
         pub zomboid: String,
-        pub admin_name: String,
         pub admin_password: String,
-        /// List of steam workshop IDs to be installed on the server
-        pub workshop_ids: Option<Vec<usize>>,
     }
 }

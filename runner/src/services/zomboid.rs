@@ -1,79 +1,44 @@
-use anyhow::bail;
-// Wrap program. We need to be able to enter arbitrary stdin and read stdout/stderr.
-// Catch first admin setup, allow setting what workshop items should be added.
-// use steamcmd for that.
-// read from stdin and pipe it directly to zomboid.
-// Catch sigterm, upon receiving it enter "save\nquit\n", then exit once it dies.
 use ctrlc::set_handler;
-use std::{
-    io::Write,
-    process::{Child, Command},
-    sync::mpsc::{self, TryRecvError},
-};
+use std::process::Stdio;
+use tokio::io::{AsyncWriteExt };
+use tokio::process::{ChildStdin, Command};
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::Receiver;
 
-#[derive(Default)]
-struct Zomboid {}
-
-impl Zomboid {
-    /// Starts and runs the game. Kills and ends the game if killcondition returns true
-    fn run(
-        mut self,
-        path: &str,
-        admin_name: &str,
-        password: &str,
-        killcondition: impl Fn() -> bool,
-    ) -> anyhow::Result<()> {
-        // We need to run the game, read stdout until the admin prompt shows up, fullfill it, then start the read/write loop.
-        let mut game = Command::new(path).spawn()?;
-        let mut stdin = game.stdin.take().unwrap();
-        let stderr = game.stderr.take().unwrap();
-        let stdout = game.stderr.take().unwrap();
-
-        loop {
-            if killcondition() {
-                stdin.write_all("save\nquit\n".as_bytes())?;
-                game.wait()?;
-                break;
-            }
-        }
-        Ok(())
-    }
-    fn prepare(
-        steamcmd: &str,
-        install_path: &str,
-        workshop_ids: Option<Vec<usize>>,
-    ) -> anyhow::Result<()> {
-        todo!()
-    }
+/// kills server gracefully
+async fn killer(mut conditional: Receiver<i32>, mut stdin: ChildStdin) {
+    conditional.recv().await.unwrap_or_default();
+    stdin.write_all("save\nquit".as_bytes()).await.unwrap();
 }
-pub fn run(
-    steamcmd_path: &str,
-    zomboid_path: &str,
-    install_path: &str,
-    workshop_ids: Option<Vec<usize>>,
-    admin_name: &str,
-    admin_password: &str,
-) -> anyhow::Result<()> {
-    let (tx, rx) = mpsc::channel();
+
+/// Starts and runs the game. Kills and ends the game if killcondition returns true
+async fn run_game(path: &str, password: &str, condition: Receiver<i32>) -> anyhow::Result<()> {
+    // We need to run the game, read stdout until the admin prompt shows up, fullfill it, then start the read/write loop.
+    let mut game = Command::new(path)
+        .arg("-adminpassword")
+        .arg(password)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .spawn()?;
+    let stdin = game.stdin.take().unwrap();
+
+    // Start the tasks
+    let _t1 = tokio::spawn(killer(condition, stdin));
+
+    game.wait().await?;
+    Ok(())
+}
+
+/// Program entrypoint, prepare sigterm handler,
+/// wrap and start the game.
+pub async fn run(zomboid_path: &str, admin_password: &str) -> anyhow::Result<()> {
+    let (tx, rx) = mpsc::channel(32);
     set_handler(move || {
-        tx.send(1337).expect("Unable to kill zomboid server");
+        tx.blocking_send(32).expect("Unable to kill zomboid server");
     })?;
-    let game = Zomboid::default();
 
-    let condition = move || {
-        let time_to_die = rx.try_recv();
-        if let Err(err) = time_to_die {
-            if let TryRecvError::Empty = err {
-                // Continue running
-                return false;
-            } else {
-                panic!("Other end of channel was closed, unable to continue operations")
-            }
-        } else {
-            // Kill the game
-            return true;
-        }
-    };
+    run_game(zomboid_path, admin_password, rx).await?;
 
-    todo!()
+    Ok(())
 }
