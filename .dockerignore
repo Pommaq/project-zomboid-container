@@ -1,3 +1,7 @@
 
 game_files/
 saves/
+.idea/
+logs/
+.github/
+runner/src/target

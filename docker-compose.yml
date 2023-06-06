@@ -2,9 +2,18 @@
 version: '3'
 services:
   zomboid:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PASSWORD: "CHANGEME"
     ports:
       - "16261:16261/udp"
     volumes:
-      # configure SELinux to ensure only one container can access this directory at once
+      # Z to configure SELinux to ensure only one container can access this directory at once
+      # Set game install directory
       - "./game_files:/install_dir:Z"
+      # Set game savefile directory
+      - "./saves:/root/Zomboid:Z"
+      # set game log output directory
+      - "./logs:/root/Steam/logs:Z"

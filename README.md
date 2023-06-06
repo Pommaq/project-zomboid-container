@@ -1,4 +1,12 @@
-A simple container that allows one to quickly get started with running a project zomboid dedicated server on Linux.
+# Zomboid SigTerm Wrapper
+This is a neat wrapper around project zomboid which ensures it exits gracefully upon receiving a sigterm signal,
+meaning it becomes easier to run as a service on servers with e.g. systemd. It is recommended to run this as a docker or podman container.
+
+# Configuring server settings
+### and adding mods etc.
+Once the server is installed atleast once, open the savefile location (e.g. /home/timmy/Zomboid) or Documents/Zomboid
+then edit ./Server/servertest.ini to add your settings.
+
 
 Game is installed and saves are stored at the following locations inside the container by default
 ```shell
