@@ -12,5 +12,7 @@ pub struct Config {
     pub startup_sh_path: String,
 
     #[clap(env)]
-    pub custom_server_parameters: Vec<String>,
+    /// A comma (,) separated string of parameters that will be passed directly
+    /// to the zomboid server
+    pub custom_server_parameters: String,
 }

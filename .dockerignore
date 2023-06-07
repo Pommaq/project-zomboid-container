@@ -1,7 +1,7 @@
 
-game_files/
-saves/
+game_files/*
+saves/*
 .idea/
-logs/
+logs/*
 .github/
-runner/src/target
+runner/src/target/*

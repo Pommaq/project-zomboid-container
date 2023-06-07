@@ -1,4 +1,3 @@
-#!/bin/sh
 # Ensures we can run both steamcmd installation AND our entrypoint
 # whilst retaining signal handling
 

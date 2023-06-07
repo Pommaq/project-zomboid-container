@@ -2,7 +2,7 @@
 # Build our wrapper
 FROM docker.io/rust:1-alpine as builder
 WORKDIR /wrapper
-COPY ./runner .
+COPY ./tools/runner .
 RUN apk add alpine-sdk
 RUN cargo build --release
 
@@ -28,10 +28,9 @@ EXPOSE "16262" "16262/udp"
 ENV STARTUP_SH_PATH="/install_dir/start-server.sh"
 
 # These can and should be customized
-# Sets custom parmaeters for the server. Each flag and/or value should most likely be whitespaced delimited
-# unless you know what you're doing.
-# see https://pzwiki.net/wiki/Startup_parameters
-ENV CUSTOM_SERVER_PARAMETERS="-Xms512m -Xmx8g -adminpassword CHANGEME"
+# Sets custom parameters for the server. Each flag and/or value must be comma (,) delimited.
+# see https://pzwiki.net/wiki/Startup_parameters for available parameters.
+ENV CUSTOM_SERVER_PARAMETERS="-adminpassword,CHANGEME"
 # Sets minimum + maximum allowed ram usage by default, allows overriding server JVM parameters
 # Set wrapper loglevel, the server itself ignores this.
 ENV RUST_LOG="info"
