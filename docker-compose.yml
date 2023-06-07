@@ -4,11 +4,13 @@ services:
   zomboid:
     environment:
       PASSWORD: "changeme"
+      CUSTOM_SERVER_PARAMETERS: "-adminpassword,CHANGEME"
     build:
       context: .
       dockerfile: Dockerfile
     ports:
       - "16261:16261/udp"
+      - "16262:16262/udp"
     volumes:
       # Z to configure SELinux to ensure only one container can access this directory at once
       # Set game install directory
