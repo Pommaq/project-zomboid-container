@@ -35,5 +35,4 @@ ENV CUSTOM_SERVER_PARAMETERS="-adminpassword,CHANGEME"
 # Set wrapper loglevel, the server itself ignores this.
 ENV RUST_LOG="info"
 
-CMD ["/tools/runner"]
-ENTRYPOINT ["/tools/entrypoint.sh"]
+ENTRYPOINT ["/bin/sh","/tools/entrypoint.sh", "/tools/runner"]
