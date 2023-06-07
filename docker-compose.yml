@@ -2,11 +2,11 @@
 version: '3'
 services:
   zomboid:
+    environment:
+      PASSWORD: "changeme"
     build:
       context: .
       dockerfile: Dockerfile
-      args:
-        PASSWORD: "CHANGEME"
     ports:
       - "16261:16261/udp"
     volumes:
