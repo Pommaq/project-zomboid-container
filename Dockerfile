@@ -6,17 +6,35 @@ COPY ./runner .
 RUN apk add alpine-sdk
 RUN cargo build --release
 
+# Create the actual container we will use
 FROM docker.io/steamcmd/steamcmd:centos
-# Sets minimum + maximum allowed ram usage
-ENV JAVA_OPTS="-Xms1g -Xmx8g"
 # For run_server64.sh
 ENV INSTDIR=/install_dir/
 
-ARG PASSWORD="CHANGEME"
 # Ensure save files are stored in /saves
 RUN mkdir -p /root/Zomboid
 RUN ln -s /root/Zomboid /saves
 
+
 WORKDIR /tools
 COPY --from=builder /wrapper/target/release/runner .
-ENTRYPOINT steamcmd +force_install_dir /install_dir +login anonymous +app_update 380870 +quit; /tools/runner /install_dir/start-server.sh $PASSWORD
+COPY ./tools/entrypoint.sh .
+RUN chmod +x ./entrypoint.sh
+# These are the ports this container uses
+EXPOSE "16261" "16261/udp"
+EXPOSE "16262" "16262/udp"
+
+# Should probably not be touched
+ENV STARTUP_SH_PATH="/install_dir/start-server.sh"
+
+# These can and should be customized
+# Sets custom parmaeters for the server. Each flag and/or value should most likely be whitespaced delimited
+# unless you know what you're doing.
+# see https://pzwiki.net/wiki/Startup_parameters
+ENV CUSTOM_SERVER_PARAMETERS="-Xms512m -Xmx8g -adminpassword CHANGEME"
+# Sets minimum + maximum allowed ram usage by default, allows overriding server JVM parameters
+# Set wrapper loglevel, the server itself ignores this.
+ENV RUST_LOG="info"
+
+CMD ["/tools/runner"]
+ENTRYPOINT ["/tools/entrypoint.sh"]

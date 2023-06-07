@@ -9,9 +9,9 @@ use env_logger;
 #[tokio::main()]
 async fn main() {
     env_logger::init();
-    info!("This is a test");
+    info!("Starting wrapper");
     let config = services::config::parse();
-    zomboid::run(&config.zomboid, &config.admin_password)
+    zomboid::run(&config.startup_sh_path, config.custom_server_parameters)
         .await
         .unwrap();
 }
