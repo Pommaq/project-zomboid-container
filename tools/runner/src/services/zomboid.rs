@@ -2,24 +2,24 @@ use ctrlc::set_handler;
 use std::process::{exit, Stdio};
 use tokio::io;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-use tokio::process::{ChildStdin, Command};
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::{Receiver, Sender};
 
 /// kills server gracefully
 async fn killer(mut conditional: Receiver<i32>, stdin: Sender<Vec<u8>>) {
-    info!("Signal recieved, stopping server gracefully...");
     conditional.recv().await.unwrap_or_default();
+    info!("Signal recieved, stopping server gracefully...");
     // We should die after this anyways, so let's ignore errors.
-    if let Err(err) = stdin.send("save\nquit\n".as_bytes().to_vec()).await {
+    if let Err(err) = stdin.send("quit\n".as_bytes().to_vec()).await {
         error!("Failed to inform server to quit: {}", err)
     }
 }
 
-async fn reader(mut source: Receiver<Vec<u8>>, mut target: ChildStdin) {
+async fn reader(mut source: Receiver<Vec<u8>>, mut target: tokio::process::ChildStdin) {
     loop {
         let res = source.recv().await;
         if let Some(data) = res {
+            debug!("Writing row {:x?} to child", &data);
             target
                 .write_all(&data)
                 .await
@@ -34,7 +34,10 @@ async fn from_stdin(destination: Sender<Vec<u8>>) {
     let mut lines = reader.lines();
     while let Ok(raw_line) = lines.next_line().await {
         if let Some(line) = raw_line {
-            if let Err(err) = destination.send(format!("{}\n", line).into_bytes().to_vec()).await {
+            if let Err(err) = destination
+                .send(format!("{}\n", line).into_bytes().to_vec())
+                .await
+            {
                 info!("Unable to write user input to server: {:?}", err);
                 return;
             }
@@ -48,9 +51,20 @@ async fn run_game(
     condition: Receiver<i32>,
     server_parameters: String,
 ) -> anyhow::Result<()> {
-    // We need to run the game, read stdout until the admin prompt shows up, fullfill it, then start the read/write loop.
-    let mut gamebuilder = Command::new(path);
-    gamebuilder.stdin(Stdio::piped())
+    // First we must create a stdlib Command so we can set the GID on UNIX,
+    // since it's unstable on Tokio.
+    #[allow(unused_mut)] // Else we get compiler warnings on windows
+    let mut raw_gamebuilder = std::process::Command::new(path);
+    #[cfg(target_family = "unix")]
+    {
+        use std::os::unix::prelude::CommandExt;
+        // Ensures CTRL+c in the terminal won't be sent directly to the server on UNIX
+        raw_gamebuilder.process_group(0);
+    }
+    // Now let's convert it to the tokio variant and continue.
+    let mut gamebuilder = tokio::process::Command::from(raw_gamebuilder);
+    gamebuilder
+        .stdin(Stdio::piped())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
 
@@ -60,9 +74,7 @@ async fn run_game(
 
     let mut game = gamebuilder.spawn()?;
     let stdin = game.stdin.take().unwrap();
-    // A function takes rx end of mpsc pipe, always writing it into game stdin
-    // Killer function writes towards 1 tx side of pipe.
-    // Another reads from software stdin if its open
+
     let (tx, rx) = mpsc::channel(32);
 
     let _t1 = tokio::spawn(killer(condition, tx.clone()));
@@ -84,7 +96,7 @@ pub async fn run(zomboid_path: &str, server_parameters: String) -> anyhow::Resul
     set_handler(move || {
         tx.blocking_send(32).expect("Unable to kill zomboid server");
     })?;
-
+    info!("Installed signal handler for stopping server");
     run_game(zomboid_path, rx, server_parameters).await?;
 
     Ok(())
