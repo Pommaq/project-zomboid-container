@@ -11,7 +11,7 @@ You can pass parameters directly to the zomboid server in two ways.
 Firstly using the `CUSTOM_SERVER_PARAMETERS` environment variable, or directly as an argument to the executable. Both scenarios require the parameters to be passed as one singular string, with each parameter separated by commas (,). I suggest reading the Dockerfile for details.
 
 ## Installing a server using Docker
-The container will install the latest version of project zomboid using steamcmd, with the game files stored inside the container at `/install_dir`, saves at `/saves` and logs at `/logs` by default. 
+The container will install the latest version of project zomboid using steamcmd, with the game files stored inside the container at `/install_dir`, saves at `/saves` d logs at `/logs` by default. 
 
 Thus you can build and run the container with persistent server install, saves and logs like the following:
 ```shell
@@ -74,6 +74,3 @@ WantedBy=multi-user.target
 # Configuring Zomboid server
 ### and adding mods etc.
 Once the server is installed open the savefile location (e.g. /home/timmy/Zomboid) or Documents/Zomboid where the configuration files will be located as [per usual for zomboid](https://pzwiki.net/wiki/Dedicated_Server#Customizing_Settings).
-
-
-
