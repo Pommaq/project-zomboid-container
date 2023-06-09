@@ -12,3 +12,4 @@ ctrlc = { version = "3.4.0", features = ["termination"] }
 env_logger = "0.10.0"
 log = "0.4.18"
 tokio = { version = "1.28.2", features = ["full"] }
+wait-timeout = "0.2.0"

@@ -1,43 +1,25 @@
-use std::time::Duration;
 use tokio::io;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::sync::mpsc::{Receiver, Sender};
-use tokio::time::sleep;
 
-pub enum ExitReason {
-    Standard,
-    Timeout,
-}
-
-pub async fn timeout_handler(reason_channel: Sender<ExitReason>, timeout: Duration) {
-    sleep(timeout).await;
-    info!("Timed out, informing main to kill the process...");
-    if let Err(err) = reason_channel.send(ExitReason::Timeout).await {
-        error!("Unable to transmit kill: {}", err);
-    }
-}
-
-pub async fn graceful_kill(
-    mut conditional: Receiver<i32>,
-    reason_channel: Sender<ExitReason>,
-    stdin: Sender<Vec<u8>>,
-) {
+pub async fn killer(mut conditional: Receiver<()>, stdin: Sender<Vec<u8>>, report: Sender<()>) {
     conditional.recv().await.unwrap_or_default();
     info!("Signal recieved, stopping server gracefully...");
     // We should die after this anyways, so let's ignore errors.
     if let Err(err) = stdin.send("quit\n".as_bytes().to_vec()).await {
         error!("Failed to inform server to quit: {}", err)
     }
-    if let Err(err) = reason_channel.send(ExitReason::Standard).await {
-        error!("Failed to inform backend regarding exit reason: {}", err)
-    }
+    report
+        .send(())
+        .await
+        .expect("Unable to inform main that we are killing server");
 }
 
 pub async fn reader(mut source: Receiver<Vec<u8>>, mut target: tokio::process::ChildStdin) {
     loop {
         let res = source.recv().await;
         if let Some(data) = res {
-            debug!("Writing row {:x?} to child", &data);
+            debug!("Writing row {:x?} to server", &data);
             target
                 .write_all(&data)
                 .await

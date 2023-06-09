@@ -4,101 +4,102 @@
 mod bootstrap;
 /// Handles communication between threads
 mod handlers;
+
 pub use bootstrap::patch_start_script;
 
-use ctrlc::set_handler;
-use handlers::{from_stdin, graceful_kill, reader, timeout_handler, ExitReason};
-use std::process::{exit, Stdio};
+use handlers::{from_stdin, killer, reader};
+use std::process::Stdio;
 use std::time::Duration;
-use tokio::sync::mpsc;
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::{self, Receiver};
+use tokio::task::spawn_blocking;
+use wait_timeout::ChildExt;
 
-/// Starts and runs the game. Kills and ends the game if killcondition returns true
-async fn run_game(
-    path: &str,
-    condition: Receiver<i32>,
-    server_parameters: String,
-    timeout: Duration,
-) -> anyhow::Result<()> {
-    // First we must create a stdlib Command so we can set the GID on UNIX,
-    // since it's unstable on Tokio.
-    #[allow(unused_mut)] // Else we get compiler warnings on windows
-    let mut raw_gamebuilder = std::process::Command::new(path);
+/// Starts and runs the game. Returns a standard lib child and not tokio
+/// since tokio is incompatible with "with-timeout" crate, but
+/// std stdin can be converted to tokio stdin when we need it.
+pub async fn run(path: &str, server_parameters: String) -> anyhow::Result<std::process::Child> {
+    #[allow(unused_mut)] // Else we get compiler warnings on windows due to the following
+    let mut gamebuilder = std::process::Command::new(path);
     #[cfg(target_family = "unix")]
     {
         use std::os::unix::prelude::CommandExt;
         // Ensures CTRL+c in the terminal won't be sent directly to the server on UNIX
-        raw_gamebuilder.process_group(0);
+        gamebuilder.process_group(0);
     }
-    // Now let's convert it to the tokio variant and continue.
-    let mut gamebuilder = tokio::process::Command::from(raw_gamebuilder);
     gamebuilder
         .stdin(Stdio::piped())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit());
     gamebuilder.args(server_parameters.split(','));
 
-    let mut game = gamebuilder.spawn()?;
-    let stdin = game.stdin.take().unwrap();
+    let (rx, mut tx) = mpsc::channel(1);
+    spawn_blocking(move || {
+        // This is blocking
+        let game = gamebuilder.spawn();
 
-    let (tx, rx) = mpsc::channel(32);
-    let (reason_tx, mut reason_rx) = mpsc::channel(2);
+        rx.blocking_send(game)
+            .expect("Unable to send child after starting it");
+    });
 
-    let _t1 = tokio::spawn(graceful_kill(condition, reason_tx.clone(), tx.clone()));
-    if !timeout.is_zero() {
-        let _t2 = tokio::spawn(timeout_handler(reason_tx, timeout));
-    }
-    let _t3 = tokio::spawn(from_stdin(tx));
-    let _t4 = tokio::spawn(reader(rx, stdin));
-
-    match reason_rx.recv().await {
-        None => {
-            error!("Reason channel closed before game has been called to exit!");
-        }
-        Some(reason) => {
-            match reason {
-                ExitReason::Standard => { /* We should just wait on the game*/ }
-                ExitReason::Timeout => {
-                    info!("Killing game");
-                    if let Err(error) = game.kill().await {
-                        error!("Unable to kill game: {}", error);
-                    }
-                }
-            }
-        }
-    }
-    // We will always wait for the game even if it was killed to avoid zombies (heh)
-    // on Unix systems
-    let code = match game.wait().await {
-        Ok(status) => status.code().unwrap_or_else(|| {
-            error!("Unable to extract status code from {}", status);
-            255
-        }),
-        Err(err) => {
-            error!("Unable to extract status code: {}", err);
-            255
-        }
-    };
-    info!("Exit status: {}", code);
-
-    // let's exit hard with the same status code when we can.
-    // We do this to propagate errors to caller, and to ensure our
-    // other routines die.
-    exit(code)
+    let game = tx.recv().await.expect("Unable to start child")?;
+    Ok(game)
 }
 
-/// Program entrypoint, prepare sigterm handler,
-/// wrap and start the game.
-pub async fn run(
-    zomboid_path: &str,
-    server_parameters: String,
-    timeout: Duration,
-) -> anyhow::Result<()> {
-    let (tx, rx) = mpsc::channel(32);
-    set_handler(move || {
-        tx.blocking_send(32).expect("Unable to kill zomboid server");
-    })?;
-    info!("Installed signal handler for stopping server");
-    run_game(zomboid_path, rx, server_parameters, timeout).await?;
-    Ok(())
+/// Ensures the game exits properly. Returns status code
+pub async fn wait_for(
+    mut game: std::process::Child,
+    condition: Receiver<()>,
+    exit_timeout: Duration,
+) -> anyhow::Result<i32> {
+    let stdlib_stdin = game.stdin.take().unwrap();
+    let stdin = tokio::process::ChildStdin::from_std(stdlib_stdin)?;
+
+    let (stdin_tx, stdin_rx) = mpsc::channel(32);
+    let (message_writer, mut message_reader) = mpsc::channel(2);
+    /*
+        Main will have one receiver, from which it'll read. Killer will send something on that receiver
+        once its triggered, whereas main will wait for game with a timeout. If the timeout expires, kill the game
+    */
+    tokio::spawn(killer(condition, stdin_tx.clone(), message_writer));
+
+    tokio::spawn(from_stdin(stdin_tx));
+    tokio::spawn(reader(stdin_rx, stdin));
+
+    // Wait until the child is attempting to exit
+    message_reader.recv().await;
+
+    let (status_writer, mut status_reader) = mpsc::channel(1);
+
+    spawn_blocking(move || {
+        let exited = game
+            .wait_timeout(exit_timeout)
+            .expect("Unable to wait for child");
+        let code = match exited {
+            // All is good
+            Some(status) => {
+                info!("Server has exited");
+                status.code().unwrap_or(0)
+            }
+            // Game did not exit
+            None => {
+                info!("Child timed out, killing it");
+                game.kill().expect("Unable to kill child");
+                // We will always wait for the game even if it was killed to avoid zombies (heh)
+                // on Unix systems
+                game.wait()
+                    .expect("Unable to wait for child")
+                    .code()
+                    // -1 since it did not exit properly
+                    .unwrap_or(-1)
+            }
+        };
+        status_writer
+            .blocking_send(code)
+            .expect("Unable to inform main of exit status");
+    });
+    let exitcode = status_reader.recv().await.unwrap_or_else(|| {
+        error!("status_writer exited without writing to channel!");
+        -1
+    });
+    Ok(exitcode)
 }
