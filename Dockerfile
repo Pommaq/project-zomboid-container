@@ -15,7 +15,6 @@ ENV INSTDIR=/install_dir/
 RUN mkdir -p /root/Zomboid
 RUN ln -s /root/Zomboid /saves
 
-
 WORKDIR /tools
 COPY --from=builder /wrapper/target/release/runner .
 COPY ./tools/entrypoint.sh .
@@ -31,6 +30,10 @@ ENV STARTUP_SH_PATH="/install_dir/start-server.sh"
 # Sets custom parameters for the server. Each flag and/or value must be comma (,) delimited.
 # see https://pzwiki.net/wiki/Startup_parameters for available parameters.
 ENV CUSTOM_SERVER_PARAMETERS="-adminpassword,CHANGEME"
+# How long we wait for the server to close after asking it to die
+# before sending SIGKILL
+ENV EXIT_TIMEOUT=900
+
 # Sets minimum + maximum allowed ram usage by default, allows overriding server JVM parameters
 # Set wrapper loglevel, the server itself ignores this.
 ENV RUST_LOG="info"
